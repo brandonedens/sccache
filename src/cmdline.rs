@@ -143,6 +143,14 @@ pub fn parse() -> Result<Command> {
         .fold(0, |acc, &x| acc + (x as usize)) > 1 {
             bail!("Too many commands specified");
         }
+
+    let env_vars =
+        if env::var("SCCACHE_IGNORE_ENV").is_ok() {
+            Vec::<(OsString, OsString)>::new()
+        } else {
+            env::vars_os().collect()
+        };
+
     if internal_start_server {
         Ok(Command::InternalStartServer)
     } else if show_stats {
@@ -162,7 +170,7 @@ pub fn parse() -> Result<Command> {
                 exe: exe.to_owned(),
                 cmdline: cmdline,
                 cwd: cwd,
-                env_vars: env::vars_os().collect(),
+                env_vars: env_vars,
             })
         } else {
             bail!("No compile command");
