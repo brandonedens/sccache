@@ -11,10 +11,10 @@ use crypto::hmac::Hmac;
 use crypto::mac::Mac;
 use crypto::sha1::Sha1;
 use futures::{Future, Stream};
-use hyper::header;
-use hyper::Method;
 use reqwest;
-use reqwest::unstable::async::{Client, Request};
+use reqwest::async::{Client, Request};
+use reqwest::header::{self, HeaderValue};
+use reqwest::Method;
 use simples3::credential::*;
 use time;
 use tokio_core::reactor::Handle;
@@ -76,7 +76,7 @@ impl Bucket {
         Ok(Bucket {
             name: name.to_owned(),
             base_url: base_url,
-            client: Client::new(handle),
+            client: Client::new(),
         })
     }
 
@@ -93,8 +93,9 @@ impl Bucket {
                     if res.status().is_success() {
                         let content_length = res
                             .headers()
-                            .get::<header::ContentLength>()
-                            .map(|&header::ContentLength(len)| len);
+                            .get(reqwest::header::CONTENT_LENGTH)
+                            .and_then(|ct_len| ct_len.to_str().ok())
+                            .and_then(|ct_len| ct_len.parse::<u64>().ok());
                         Ok((res.into_body(), content_length))
                     } else {
                         Err(ErrorKind::BadHTTPStatus(res.status().clone()).into())
@@ -126,7 +127,7 @@ impl Bucket {
     pub fn put(&self, key: &str, content: Vec<u8>, creds: &AwsCredentials) -> SFuture<()> {
         let url = format!("{}{}", self.base_url, key);
         debug!("PUT {}", url);
-        let mut request = Request::new(Method::Put, url.parse().unwrap());
+        let mut request = Request::new(Method::PUT, url.parse().unwrap());
 
         let content_type = "application/octet-stream";
         let date = time::now_utc().rfc822().to_string();
@@ -137,7 +138,7 @@ impl Bucket {
             if let Some(ref value) = maybe_value {
                 request
                     .headers_mut()
-                    .set_raw(header, vec![value.as_bytes().to_vec()]);
+                    .insert(header, HeaderValue::from_bytes(value.as_bytes()).unwrap());
                 canonical_headers
                     .push_str(format!("{}:{}\n", header.to_ascii_lowercase(), value).as_ref());
             }
@@ -153,20 +154,17 @@ impl Bucket {
         );
         request
             .headers_mut()
-            .set_raw("Date", vec![date.into_bytes()]);
+            .insert("Date", HeaderValue::from_bytes(&date.into_bytes()).unwrap());
         request
             .headers_mut()
-            .set(header::ContentType(content_type.parse().unwrap()));
+            .insert(header::CONTENT_TYPE, HeaderValue::from_str(content_type).unwrap());
         request
             .headers_mut()
-            .set(header::ContentLength(content.len() as u64));
-        request.headers_mut().set(header::CacheControl(vec![
-            // Two weeks
-            header::CacheDirective::MaxAge(1296000),
-        ]));
+            .insert(header::CONTENT_LENGTH, HeaderValue::from_str(&content.len().to_string()).unwrap());
+        request.headers_mut().insert(header::CACHE_CONTROL, HeaderValue::from_str(&format!("max-age={}", 1296000)).unwrap());
         request
             .headers_mut()
-            .set_raw("Authorization", vec![auth.into_bytes()]);
+            .insert("Authorization", HeaderValue::from_bytes(&auth.into_bytes()).unwrap());
         *request.body_mut() = Some(content.into());
 
         Box::new(self.client.execute(request).then(|result| match result {

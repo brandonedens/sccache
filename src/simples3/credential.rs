@@ -6,9 +6,9 @@ use chrono::{Duration, offset, DateTime};
 use directories::UserDirs;
 use futures::{Future, Async, IntoFuture, Stream};
 use futures::future::{self, Shared};
-use hyper::{self, Client, Method};
-use hyper::client::{HttpConnector, Request};
-use hyper::header::Connection;
+use hyper::{self, Body, Client, Method, Request};
+use hyper::header::{self, HeaderValue};
+use hyper::client::{HttpConnector};
 use regex::Regex;
 use serde_json::{Value, from_str};
 #[allow(unused_imports, deprecated)]
@@ -273,7 +273,7 @@ pub struct IamProvider {
 impl IamProvider {
     pub fn new(handle: &Handle) -> IamProvider {
         IamProvider {
-            client: Client::new(handle),
+            client: Client::new(),
             handle: handle.clone(),
         }
     }
@@ -281,8 +281,12 @@ impl IamProvider {
     fn iam_role(&self) -> SFuture<String> {
         // First get the IAM role
         let address = "http://169.254.169.254/latest/meta-data/iam/security-credentials/";
-        let mut req = Request::new(Method::Get, address.parse().unwrap());
-        req.headers_mut().set(Connection::close());
+        let req = Request::builder()
+            .method("GET")
+            .uri(address)
+            .header(header::CONNECTION, "close")
+            .body(Body::empty())
+            .unwrap();
         let response = self.client.request(req).and_then(|response| {
             response.body().fold(Vec::new(), |mut body, chunk| {
                 body.extend_from_slice(&chunk);
@@ -318,8 +322,12 @@ impl ProvideAwsCredentials for IamProvider {
         let client = self.client.clone();
         let response = url.and_then(move |address| {
             debug!("Attempting to fetch credentials from {}", address);
-            let mut req = Request::new(Method::Get, address);
-            req.headers_mut().set(Connection::close());
+            let req = Request::builder()
+                .method("GET")
+                .uri(address)
+                .header(header::CONNECTION, "close")
+                .body(Body::empty())
+                .unwrap();
             client.request(req).chain_err(|| {
                 "failed to send http request"
             })

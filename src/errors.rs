@@ -60,7 +60,7 @@ error_chain! {
 
     errors {
         #[cfg(feature = "hyper")]
-        BadHTTPStatus(status: hyper::StatusCode) {
+        BadHTTPStatus(status: reqwest::StatusCode) {
             description("failed to get a successful HTTP status")
             display("didn't get a successful HTTP status, got `{}`", status)
         }
