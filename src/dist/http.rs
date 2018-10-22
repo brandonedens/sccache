@@ -64,26 +64,26 @@ mod common {
             Ok(self.bytes(bytes))
         }
         fn bytes(&mut self, bytes: Vec<u8>) -> &mut Self {
-            self.header(reqwest::header::ContentType::octet_stream())
-                .header(reqwest::header::ContentLength(bytes.len() as u64))
+            self.header(reqwest::header::CONTENT_TYPE, reqwest::header::HeaderValue::from_static("application/octet-stream"))
+                .header(reqwest::header::CONTENT_LENGTH, reqwest::header::HeaderValue::from_str(&bytes.len().to_string()).unwrap())
                 .body(bytes)
         }
         fn bearer_auth(&mut self, token: String) -> &mut Self {
-            self.header(reqwest::header::Authorization(reqwest::header::Bearer { token }))
+            self.header(reqwest::header::AUTHORIZATION, reqwest::header::HeaderValue::from_str(&format!("Bearer {}", token)).unwrap())
         }
     }
-    impl ReqwestRequestBuilderExt for reqwest::unstable::async::RequestBuilder {
+    impl ReqwestRequestBuilderExt for reqwest::async::RequestBuilder {
         fn bincode<T: serde::Serialize + ?Sized>(&mut self, bincode: &T) -> Result<&mut Self> {
             let bytes = bincode::serialize(bincode)?;
             Ok(self.bytes(bytes))
         }
         fn bytes(&mut self, bytes: Vec<u8>) -> &mut Self {
-            self.header(reqwest::header::ContentType::octet_stream())
-                .header(reqwest::header::ContentLength(bytes.len() as u64))
+            self.header(reqwest::header::CONTENT_TYPE, reqwest::header::HeaderValue::from_static("application/octext-stream"))
+                .header(reqwest::header::CONTENT_LENGTH, reqwest::header::HeaderValue::from_str(&bytes.len().to_string()).unwrap())
                 .body(bytes)
         }
         fn bearer_auth(&mut self, token: String) -> &mut Self {
-            self.header(reqwest::header::Authorization(reqwest::header::Bearer { token }))
+            self.header(reqwest::header::AUTHORIZATION, reqwest::header::HeaderValue::from_str(&format!("Bearer {}", token)).unwrap())
         }
     }
 
@@ -98,7 +98,7 @@ mod common {
             bincode::deserialize(&body).map_err(Into::into)
         }
     }
-    pub fn bincode_req_fut<T: serde::de::DeserializeOwned + 'static>(req: &mut reqwest::unstable::async::RequestBuilder) -> SFuture<T> {
+    pub fn bincode_req_fut<T: serde::de::DeserializeOwned + 'static>(req: &mut reqwest::async::RequestBuilder) -> SFuture<T> {
         Box::new(req.send().map_err(Into::into)
             .and_then(|res| {
                 let status = res.status();
@@ -607,7 +607,7 @@ mod client {
         // TODO: this should really only use the async client, but reqwest async bodies are extremely limited
         // and only support owned bytes, which means the whole toolchain would end up in memory
         client: reqwest::Client,
-        client_async: reqwest::unstable::async::Client,
+        client_async: reqwest::async::Client,
         pool: CpuPool,
         tc_cache: cache::ClientToolchains,
     }
@@ -616,7 +616,7 @@ mod client {
         pub fn new(handle: &tokio_core::reactor::Handle, pool: &CpuPool, scheduler_addr: IpAddr, cache_dir: &Path, cache_size: u64, toolchain_configs: &[config::DistToolchainConfig], auth_token: String) -> Self {
             let timeout = Duration::new(REQUEST_TIMEOUT_SECS, 0);
             let client = reqwest::ClientBuilder::new().timeout(timeout).build().unwrap();
-            let client_async = reqwest::unstable::async::ClientBuilder::new().timeout(timeout).build(handle).unwrap();
+            let client_async = reqwest::async::ClientBuilder::new().timeout(timeout).build(handle).unwrap();
             Self {
                 auth_token,
                 scheduler_addr: Cfg::scheduler_connect_addr(scheduler_addr),

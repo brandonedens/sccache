@@ -2,9 +2,10 @@ use futures::future;
 use futures::sync::oneshot;
 use futures::Future;
 use hyper;
-use hyper::{Body, Method, Request, Response, Server, StatusCode};
-use hyper::header::{ContentLength, ContentType};
-use hyper::server::{Http, const_service, service_fn};
+use hyper::{Body, Method, Request, Response, StatusCode, Uri};
+use hyper::header::{self, HeaderValue};
+use hyper::server::conn::Http;
+use hyper::service::service_fn;
 use serde::Serialize;
 use serde_json;
 use std::collections::HashMap;
@@ -65,20 +66,20 @@ lazy_static! {
     static ref STATE: Mutex<Option<State>> = Mutex::new(None);
 }
 
-fn html_response(body: &'static str) -> Response {
-    Response::new()
-        .with_body(body)
-        .with_header(ContentType::html())
-        .with_header(ContentLength(body.len() as u64))
+fn html_response(body: &'static str) -> Response<String> {
+    Response::builder()
+        .header(header::CONTENT_TYPE, HeaderValue::from_static("text/html"))
+        .header(header::CONTENT_LENGTH, HeaderValue::from_str(&body.len().to_string()).unwrap())
+        .body(body.to_string()).unwrap()
 }
 
-fn json_response<T: Serialize>(data: &T) -> Response {
-    let body = serde_json::to_vec(data).unwrap();
+fn json_response<T: Serialize>(data: &T) -> Response<String> {
+    let body = serde_json::to_string(data).unwrap();
     let len = body.len();
-    Response::new()
-        .with_body(body)
-        .with_header(ContentType::json())
-        .with_header(ContentLength(len as u64))
+    Response::builder()
+        .header(header::CONTENT_TYPE, HeaderValue::from_static("application/json"))
+        .header(header::CONTENT_LENGTH, HeaderValue::from_str(&len.to_string()).unwrap())
+        .body(body.to_string()).unwrap()
 }
 
 const ROOT: &str = r##"<!doctype html>
@@ -146,17 +147,17 @@ fn serve(req: Request<Body>) -> BoxFut {
     let state = state.as_mut().unwrap();
     debug!("Handling {} {}", req.method(), req.uri());
     let response = match (req.method(), req.uri().path()) {
-        (&Method::Get, "/") => {
+        (&Method::GET, "/") => {
             html_response(ROOT)
         },
-        (&Method::Get, "/auth_detail.json") => {
+        (&Method::GET, "/auth_detail.json") => {
             json_response(&state.auth_url)
         },
-        (&Method::Get, "/callback") => {
+        (&Method::GET, "/callback") => {
             html_response(CALLBACK)
         },
-        (&Method::Post, "/save_auth") => {
-            let url = Url::parse("http://unused_base").unwrap().join(req.uri().as_ref()).unwrap();
+        (&Method::POST, "/save_auth") => {
+            let url = Url::parse("http://unused_base").unwrap().join(req.uri().to_string().as_ref()).unwrap();
             let query_pairs = url.query_pairs().map(|(k, v)| (k.into_owned(), v.into_owned())).collect();
             let (token, expires_at, auth_state) = handle_implicit_grant_response(query_pairs).unwrap();
             if auth_state != state.auth_state_value {
@@ -172,7 +173,7 @@ fn serve(req: Request<Body>) -> BoxFut {
         },
         _ => {
             warn!("Route not found");
-            Response::new().with_status(StatusCode::NotFound)
+            Response::builder().status(StatusCode::NOT_FOUND).body("".to_string()).unwrap()
         },
     };
 
@@ -186,7 +187,7 @@ pub fn get_token_oauth2_implicit(mut auth_url: Url) -> Result<String> {
         let mut addrs = ("localhost", port).to_socket_addrs().unwrap();
         let addr = addrs.next().unwrap();
 
-        let new_service = const_service(service_fn(serve));
+        let new_service = service_fn(serve);
         match Http::new().bind(&addr, new_service) {
             Ok(s) => {
                 server = Some(s);
